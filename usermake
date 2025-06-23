@@ -1,0 +1,16 @@
+# =====================================================================================================================
+# Assignment 4 Submission 
+# Name: Sumit Kumar 
+# Roll number: 22CS30056
+# Link of the pcap file: https://drive.google.com/file/d/1FW5PEmipQMQc6ik-mDaiQGYdnPoZ9dcI/view?usp=sharing
+# =====================================================================================================================
+
+all:
+		gcc -Wall -Wextra -pedantic -pthread -o user1 user1.c -L. -lksocket
+		gcc -Wall -Wextra -pedantic -pthread -o user2 user2.c -L. -lksocket
+
+generate:
+	awk 'BEGIN {for(i=1;i<=2000;i++) print "hey there sumit-"i}' > input.txt
+
+clean:
+		rm -f user1 user2

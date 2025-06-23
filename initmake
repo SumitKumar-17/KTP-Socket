@@ -1,0 +1,13 @@
+# =====================================================================================================================
+# Assignment 4 Submission 
+# Name: Sumit Kumar 
+# Roll number: 22CS30056
+# Link of the pcap file: https://drive.google.com/file/d/1FW5PEmipQMQc6ik-mDaiQGYdnPoZ9dcI/view?usp=sharing
+# =====================================================================================================================
+
+
+all:
+	gcc -Wall -Wextra -pedantic -pthread -o initksocket initksocket.c -L. -lksocket
+	
+clean:
+	-rm -f initksocket

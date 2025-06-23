@@ -1,0 +1,426 @@
+                                 _  __ _____  ____    ____                _          _   
+                                | |/ /|_   _||  _ \  / ___|   ___    ___ | | __ ___ | |_ 
+                                | ' /   | |  | |_) | \___ \  / _ \  / __|| |/ // _ \| __|
+                                | . \   | |  |  __/   ___) || (_) || (__ |   <|  __/| |_ 
+                                |_|\_\  |_|  |_|     |____/  \___/  \___||_|\_\\___| \__|
+                                Documentation for CS39006: Networks Laboratory Assignment 4
+
+Name: Sumit Kumar
+Roll No: 22CS30056
+Link of the pcap file: https://drive.google.com/file/d/1FW5PEmipQMQc6ik-mDaiQGYdnPoZ9dcI/view?usp=sharing
+The graphs for this data is plotted on https://k-socket-graphs.vercel.app
+
+Statistics Table:
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| P value | Total Messages Sent | Total Message Transmissions | Total ACKs Sent | Average Message Transmissions per Message | Average ACKs Sent per Message | Average Total Transmissions (Message + ACK) per Message |
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| 0.05    | 500                 | 617                         | 609             | 1.234000                                  | 1.218000                      | 2.452000                                                |
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| 0.10    | 500                 | 715                         | 663             | 1.430000                                  | 1.326000                      | 2.756000                                                |
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| 0.15    | 500                 | 814                         | 708             | 1.628000                                  | 1.416000                      | 3.044000                                                |
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| 0.20    | 500                 | 901                         | 732             | 1.802000                                  | 1.464000                      | 3.266000                                                |
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| 0.25    | 500                 | 1038                        | 736             | 2.076000                                  | 1.532000                      | 3.608000                                                |
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| 0.30    | 500                 | 1163                        | 828             | 2.326000                                  | 1.656000                      | 3.982000                                                |
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| 0.35    | 500                 | 1476                        | 921             | 2.952000                                  | 1.842000                      | 4.794000                                                |
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| 0.40    | 500                 | 1510                        | 851             | 3.020000                                  | 1.702000                      | 4.722000                                                |
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| 0.45    | 500                 | 1711                        | 945             | 3.422000                                  | 1.890000                      | 5.312000                                                |
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| 0.50    | 500                 | 1999                        | 968             | 3.998000                                  | 1.936000                      | 5.934000                                                |
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ksocket.h and ksocket.c:
+    - These files contain the implementation of the ksocket library.
+
+-----------------------------------------------------------------------
+Macros:
+    - P: The probability of packet loss. This is used for testing the packet loss while transfer
+    - T: The timeout value for the sender.
+    - N: The maximum number of shared memory entries.
+    - SOCK_KTP: The socket type for the ksocket.
+    - RECV_BUFF_SIZE: The size of the receive buffer.
+    - SEND_BUFF_SIZE: The size of the send buffer.
+    - MAX_SEQ_NUM: The maximum sequence number that can be used. It is a 8-bit sequence number.
+    - MSG_SIZE: The size of the message that can be sent. It is 512 KB of data.
+
+-----------------------------------------------------------------------
+
+Data Structures:
+
+swnd:
+    - This structure is used to represent the send window of the sender. It helps in keeping track of the send window.
+    - int window_size : The size of the window at the current moment. It is initialized to RECV_BUFF_SIZE and is updated based on the ACKs received.
+    - int last_seq_ack : The last sequence number that was acknowledged by the receiver. It is initialized to 0. It is updated based on the ACKs received.
+    - int buffer_is_valid [SEND_BUFF_SIZE] : An array of size SEND_BUFF_SIZE that stores whether the data at the corresponding index in the send buffer is valid or not. It is initialized to 0.
+        - If the message at a particular index is garbage, then buffer_is_valid[i] = 0 ( Either the application user has not written anything in the buffer or the message has been sent and acknowledged).
+        - If the message at a particular index has been written by the application user and has not been sent even once then buffer_is_valid[i] = 1.
+        - If the message at a particular index has been sent but not acknowledged then buffer_is_valid[i] = 2.
+    - int seq_buf_index_map [MAX_SEQ_NUM] : An array of size MAX_SEQ_NUM which is used to map the sequence number to the index of the buffer in the send buffer. It is updated based on the sequence number of the message. This field is neccessary since the sequence number and the buffer index change over time.
+    - time_t timeout [MAX_SEQ_NUM]: An array of size MAX_SEQ_NUM which stores the time at which the message was last sent. It is used to calculate the timeout for the message.
+    - int last_buf_index: The last index of the buffer that was written by the application user. It is initialized to 0 and is updated based on the application user writes.
+
+rwnd:
+    - This structure is used to represent the receive window of the receiver. It keeps track of the receive window.
+    - int to_deliver : The index of the message in buffer that is to be delivered to the application user. Updated when the receiver receives a message.
+    - int window_size : The size of the window at the current moment. It is initialized to RECV_BUFF_SIZE and is updated based on the messages received and when the application user reads the message.
+    - int last_inorder_packet : The last sequence number that was received in order. It is initialized to 0. It is updated based on the messages received.
+    - int buffer_is_valid [RECV_BUFF_SIZE] : An array of size RECV_BUFF_SIZE that stores whether the data at the corresponding index in the receive buffer is valid or not. It is initialized to 0.
+        - If the message at a particular index is garbage, then buffer_is_valid[i] = 0 ( Either the sender has not sent anything in the buffer or the message has been read by the application user).
+        - If the message at a particular index has been sent by the sender and has not been read by the application user then buffer_is_valid[i] = 1.
+    - int seq_buf_index_map [MAX_SEQ_NUM] : An array of size MAX_SEQ_NUM which is used to map the sequence number to the index of the buffer in the receive buffer. It is updated based on the sequence number of the message. This field is neccessary since the sequence number and the buffer index change over time.    
+    - int nospace : A flag that is set when the receiver does not have enough space to store the message. It is used to inform the sender that the receiver is not ready to receive the message.
+
+shared_memory:
+    This structure is used to represent an entry in the shared memory table
+    - int is_available : A flag that is set when the particular row in the shared memory table is available. It is used to check if the entry is available or not.
+    - pid_t pid : The process id of the process that is using this socket for send.
+    - int src_sock : The socket descriptor of the sender.
+    - struct in_addr dest_ip : The IP address of the receiver.
+    - int dest_port : The port number of the receiver.
+    - char recv_buff[RECV_BUFF_SIZE][MSG_SIZE] : A 2D array of size RECV_BUFF_SIZE x MSG_SIZE that is used to store the messages received by the receiver.
+    - char send_buff[SEND_BUFF_SIZE][MSG_SIZE] : A 2D array of size SEND_BUFF_SIZE x MSG_SIZE that is used to store the messages to be sent by the sender.
+    - struct swnd send_window : The send window of the sender.
+    - struct rwnd receive_window : The receive window of the receiver.
+
+SOCK_INFO:
+    The SOCK_INFO data structure is used to perform the k_socket, k_bind operations.
+    - sock_id: The socket id of the socket.
+    - IP: The IP address of the socket.
+    - port: The port number of the socket.
+    - errorno: The error number of the operation.
+
+sembuf pop and vop: 
+    These are macros defined to perform semaphore Signal() and Wait() operations.
+
+-----------------------------------------------------------------------
+
+Functions:
+
+void reset_sock_info:
+    - This function resets the values of the given SOCK_INFO structure.
+    - Arguments:
+        - struct SOCK_INFO *SI : The pointer to the SOCK_INFO structure to be reset.
+    - Return Value: void
+
+int k_socket:
+    - Creates a new socket with the specified domain, type, and protocol.
+    - Arguments:
+        - int domain : The domain of the socket (must be AF_INET).
+        - int type : The type of the socket (must be SOCK_KTP).
+        - int protocol : The protocol of the socket (must be 0).
+    - Return Value: The index of the new socket in the table, or -1 if an error occurred. If an error occurred, the errno variable will be set to indicate the specific error.
+
+int k_bind:
+    - This function binds a socket to a specific source and destination address.
+    - Arguments:
+        - int sockfd : The socket file descriptor.
+        - const struct sockaddr *src_addr : Pointer to the source address structure.
+        - socklen_t addrlen : Length of the source address structure.
+        - const struct sockaddr *dest_addr : Pointer to the destination address structure.
+        - socklen_t addrlen1 : Length of the destination address structure.
+    - Return Value: 0 on success, -1 on failure. If an error occurred, the errno variable will be set to indicate the specific error.
+
+int k_sendto:
+    - This function sends a message to a destination address using a socket. More specifically, it writes the message to the send buffer of the socket.
+    - Arguments:
+        - int sockfd : The socket file descriptor.
+        - const void *buf : Pointer to the buffer containing the message to be sent.
+        - size_t len : The length of the message in bytes.
+        - int flags : Flags to modify the behavior of the send operation (currently not supported).
+        - const struct sockaddr *dest_addr : Pointer to a sockaddr structure containing the destination address.
+        - socklen_t addrlen : The length of the destination address structure.
+    - Return Value: On success, returns the number of bytes sent. On failure, returns -1 and sets errno accordingly.
+
+
+int k_recvfrom:
+    - This function receives a message from a socket. More specifically, it reads the message from the receive buffer of the socket.
+    - Arguments:
+        - int sockfd : The socket file descriptor.
+        - void *buf : Pointer to the buffer where the received message will be stored.
+        - size_t len : The maximum length of the message to be received.
+        - int flags : Flags that modify the behavior of the receive operation (currently not supported).
+        - struct sockaddr *src_addr : Pointer to a sockaddr structure that will be filled with the source address information.
+        - socklen_t *addrlen : Pointer to the length of the src_addr structure.
+    - Return Value: On success, returns the length of the received message. On failure, returns -1 and sets errno accordingly.
+    
+int k_close:
+    - Closes the socket with the given file descriptor. More specifically, it marks the socket as available in the shared memory.
+    - Arguments:
+        - int sockfd : The socket file descriptor.
+    - Return Value: 0 on success, -1 on failure.
+
+int drop_message:
+    - This function simulates packet loss by dropping a message with a certain probability.
+    - Arguments:
+        - float p : The probability of dropping the message.
+    - Return Value: 1 if the message is dropped, 0 otherwise.
+
+----------------------------------------------------------------
+
+initksocket.c:
+    - This file implements the R, S, Garbage Collector and Main thread.
+    - This file should be ran first before using any of the KTP Functions.
+
+-----------------------------------------------------------------------
+
+Define DSERVER_LOGS to enable the server logs
+Define DSTAT to enable the statistics on exit
+Macros:
+    - ACKNOWLEDGEMENT_SIZE: The size of the ACK message.
+    - SPECIAL_MESSAGE: The size of the special message.
+
+Header Design:
+    Data Message:
+        0 0 SeqNum(8) Message(512)
+        - This format is used to send data messages
+
+    Ack Message:
+        1 0 SeqNum(8) WindowSize(8)
+        - This format is used to send acks
+
+    Special Ack Message:
+        1 1 seqNum(8) WindowSize(8)
+        - This is a special ack message to indicate that earlier the window was full but now it is not and the sender can send more messages
+        - The second bit is set to 1 to indicate that this is a special ack message
+        - The sender is supposed to send more messages after receiving this ack if he has any
+        - Otherwise if the sender does not have any more messages to send, he should reply with a special message to the receiver to indicate that he has successfully received the information of buffer space availability
+        - Until the sender either sends a special message or a data message, the receiver will keep on sending special ack messages to indicate buffer space availability
+
+    Special Message:
+        0 1
+        - This is a special message to reply against special ack messages to indicate that the sender has successfully received the information of buffer space availability but currently does not have any more messages to send
+        - On receiving ack indicating buffer space availability on the receiver side, the sender should either send this message or a data message to the receiver
+
+        Note: In this header format we have actually used one total byte to indicate one bit of header information. This is not the most efficient way to do it but it is done to keep the implementation simple and easy to understand with better representation of the header information.
+
+
+
+-----------------------------------------------------------------------
+
+Data Structures:
+
+shmid:
+    - Type: int
+    - The shared memory identifier for the table.
+
+shmid_1:
+    - Type: int
+    - The shared memory identifier for the SOCK_INFO structure.
+
+SM:
+    - Type: struct shared_memory *
+    - A pointer to the shared memory table.
+
+SI:
+    - Type: struct SOCK_INFO *
+    - A pointer to the SOCK_INFO structure.
+
+table_lock:
+    - Type: int
+    - The lock for the shared memory table.
+
+sem_1:
+    - Type: int
+    - The semaphore for implementation of k_socket and k_bind.
+
+sem_2:
+    - Type: int
+    - The semaphore for implementation of k_socket and k_bind.
+
+sock_info_lock:
+    - Type: int
+    - The lock for the SOCK_INFO structure.
+
+sem_row:
+    - Type: int[N]
+    - An array of semaphores for each row in the shared memory table.
+
+int msg_count:
+    - Type: int
+    - The count of total messages sent. Used for printing statistics.
+
+int msg_send_count:
+    - Type: int
+    - The count of total number of message transmissions. Used for printing statistics.
+
+int ack_count:
+    - Type: int
+    - The count of total number of ACKs sent. Used for printing statistics.
+
+-----------------------------------------------------------------------
+
+Functions:
+
+void sig_handler:
+    - Signal handler for SIGQUIT and SIGINT signals. It clears the shared memory and exits the program. It also prints the statistics if DSTAT is defined.
+    - Arguments:
+        - int signo : The signal number.
+    - Return Value: void
+
+void decimal_to_binary:
+    - Converts a decimal number (0-255) to a binary representation.
+    - Arguments:
+        - int decimal : The decimal number to convert.
+        - char *buffer : The buffer to store the binary representation.
+    - Return Value: void
+
+void send_ack:
+    - Sends an acknowledgment packet over a socket.
+    - Arguments:
+        - int sock : The socket descriptor.
+        - struct in_addr dest_ip : The destination IP address.
+        - int dest_port : The destination port number.
+        - int seq_num : The sequence number of the acknowledgment.
+        - int window_size : The window size of the acknowledgment.
+        - int ack_type : The type of the acknowledgment.
+    - Return Value: void
+
+void send_msg:
+    - Sends a message over a socket to a specified destination IP and port.
+    - Arguments:
+        - int sock : The socket descriptor.
+        - struct in_addr dest_ip : The destination IP address.
+        - int dest_port : The destination port number.
+        - int seq_num : The sequence number of the message.
+        - char *msg : The message to be sent.
+    - Return Value: void
+
+void send_empty_msg:
+    - Sends an empty message (01) to the specified destination IP and port using the given socket.
+    - Arguments:
+        - int sock : The socket to send the message from.
+        - struct in_addr dest_ip : The destination IP address.
+        - int dest_port : The destination port number.
+    - Return Value: void
+
+int binary_to_decimal:
+    - Converts a binary string to its decimal equivalent.
+    - Arguments:
+        - char *binary : The binary string to be converted.
+        - int size : The size of the binary string.
+    - Return Value: The decimal equivalent of the binary string.
+
+void *Garbage_Collector:
+    - This function continuously checks the status of each table entry in the SM array.
+        If a process is found to be dead, it marks the corresponding table entry as available,
+        closes the source socket, and resets the destination IP address.
+        If an error occurs while checking the process status or closing the socket, the function exits with failure.
+    - Arguments: None
+    - Return Value: void *
+
+void *R_Thread:
+    - The R_Thread function is responsible for handling incoming packets from multiple sockets.
+        It uses the select system call to monitor the sockets for incoming data.
+        When a packet is received, it processes the packet and updates the receive window for the corresponding socket.
+        If the receive window becomes full, it sends an acknowledgment indicating that there is no space available.
+        If the receive window has space available, it sends an acknowledgment indicating the last in-order packet received and the current window size.
+        The R_Thread function runs in an infinite loop, continuously monitoring the sockets for incoming packets.
+
+    - Arguments: None
+    - Return Value: void *
+
+void *S_Thread:
+    - The S_Thread continuously checks each table entry in the send window and sends packets if they are available.
+        It uses a sleep time to control the rate of sending packets.
+        If a packet needs to be resent due to a timeout, it updates the timeout value and resends the packet.
+    - Arguments: None
+    - Return Value: void *
+
+int main:
+    - The main function initializes the shared memory and semaphores.
+        It creates the Garbage Collector, R_Thread, and S_Thread threads.
+        It also handles the socket initialization and binding requests.
+    - Arguments: None
+    - Return Value: 0 on successful execution.
+
+
+Here’s how you can structure the documentation for compiling and running the code with proper bullet points and explanations:
+
+---
+
+Compilation and Execution Guide:
+
+This document outlines the steps required to compile and run the necessary components for your project. Follow the instructions carefully to ensure a successful build and execution.
+
+1. Compiling the Library
+    Before proceeding with other components, you need to compile the library that will be used by the other files.
+
+    Step 1: Clean previous builds:
+        make -f libmake clean
+    This command ensures that any previous compiled files are removed before starting a fresh compilation.
+
+    Step 2: Compile the library:
+        make -f libmake
+    This command compiles the library using the libmake makefile. It prepares the necessary static or dynamic libraries for use in other components.
+
+2. Compiling the initksocket.c
+    The initksocket.c file is responsible for socket initialization. You need to compile it next.
+
+    Step 1: Clean previous builds:
+        make -f initmake clean
+    This ensures that any previously compiled versions of initksocket.c are removed before starting a fresh build.
+
+    Step 2: Compile initksocket.c:
+        make -f initmake
+    This command compiles the initksocket.c file using the initmake makefile. It generates the executable or object file needed for socket initialization.
+
+3. Writing the user1.c and user2.c Files
+    You will need to write the source code for user1.c and user2.c. These files are typically used for client-server communication or to demonstrate interaction with the initialized socket.
+
+    Step 1: Write the code for user1.c:
+        This file contains the logic for one of the users (usually the client).
+
+    Step 2: Write the code for user2.c:
+        This file contains the logic for the second user (usually the server).
+   
+    Ensure that these two files implement the intended communication or functionality between the users, such as socket-based communication.
+
+4. Compiling user1.c and user2.c
+    After writing the necessary code, you can compile both files.
+
+    Step 1: Clean previous builds:
+        make -f usermake clean
+    This command ensures that any previously compiled files related to user1.c and user2.c are removed before starting a fresh compilation.
+
+    Step 2: Compile user1.c and user2.c:
+        make -f usermake
+    This command compiles both user1.c and user2.c files using the usermake makefile. It generates the corresponding executable files for both users.
+
+5. Running the Executables
+    Once the compilation is complete, you can run the executables created from the source files.
+    Run the executable for user1:
+        ./user1 127.0.0.1 5000 127.0.0.1 6000
+
+    Run the executable for user2:
+        ./user2 127.0.0.1 6000 127.0.0.1 5000
+    Ensure both executables are running simultaneously for the interaction between the users (e.g., client-server communication).
+
+Clean Everything:
+    make -f libmake clean
+    make -f initmake clean
+    make -f usermake clean
+
+Build Everything: (Ensure building in order else dependencies will cause error)
+    make -f libmake 
+    make -f initmake 
+    make -f usermake 
+
+Running Commands:
+    ./initksocket  (in the first terminal)
+    ./user1 127.0.0.1 5000 127.0.0.1 6000   (the sender in the second terminal)
+    ./user2 127.0.0.1 6000 127.0.0.1 5000   (the receiver in the third terminal)
+
+Note: Iy you reecive these message in the running of user1c and user2.c
+    such as k_sento[Unknown error 998]
+    These means that the socket is not bind and the k_bind function has not been called 
+    This 998 error denotes a custom error message defined for he k_socket library
+        #define ENOSPACE 999
+        #define ENOTBOUND 998
+        #define ENOMESSAGE 997
