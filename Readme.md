@@ -50,7 +50,3 @@ Third-year Undergraduate, IIT Kharagpur
 [GitHub: SumitKumar-17](https://github.com/SumitKumar-17)
 
 > "Designed with reliability in mind, layered with concurrency, and tested under failure."
-
----
-
-Feel free to include this in a GitHub repo or portfolio. Let me know if you want a sample `ksocket.h` API description section added!
